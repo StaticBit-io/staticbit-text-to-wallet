@@ -3,7 +3,7 @@
 This page allows users to deterministically generate an XRPL wallet from text input
 and optional salt using SHA-256 or PBKDF2 methods.
 
-👉 Use it here: https://staticbit.github.io/staticbit-wallet-tools/
+👉 Use it here: https://staticbit-io.github.io/staticbit-text-to-wallet
 
 ⚠ All computations are client-side. No data is sent anywhere.
 
