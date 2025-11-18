@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Text → XRPL Wallet Generator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 1.5rem;
+            background: #050607;
+            color: #f5f5f5;
+        }
+        h1 { margin-bottom: 0.25rem; }
+        .subtitle { color: #a0a0a0; margin-bottom: 1.5rem; }
+        .card {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            border-radius: 16px;
+            background: radial-gradient(circle at top left, #0a2718, #050607);
+            box-shadow: 0 18px 40px rgba(0,0,0,0.6);
+        }
+        label {
+            display: block;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+        textarea, input, select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.5rem 0.6rem;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #111;
+            color: #f5f5f5;
+            font-family: inherit;
+            font-size: 0.95rem;
+        }
+        textarea { min-height: 80px; resize: vertical; }
+        .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+        .col { flex: 1 1 200px; }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .checkbox-row input { width: auto; }
+        button {
+            margin-top: 1rem;
+            padding: 0.6rem 1.2rem;
+            border-radius: 999px;
+            border: none;
+            background: #00b16a;
+            color: #020202;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:disabled { opacity: 0.6; cursor: default; }
+        .result {
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #222;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+        .result-item { margin-bottom: 0.7rem; }
+        .result-item span.label {
+            display: inline-block;
+            min-width: 200px;
+            color: #9dd9b5;
+        }
+        .small { font-size: 0.8rem; color: #a0a0a0; }
+        .error { margin-top: 0.75rem; color: #ff8a8a; font-size: 0.85rem; }
+        .warn { color: #ffc76b; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h1>Text → XRPL Wallet</h1>
+    <div class="subtitle">
+        Generate an XRPL wallet from text and optional salt. All operations are processed locally in your browser.
+    </div>
+
+    <!-- Input -->
+    <label for="text">Input text</label>
+    <textarea id="text" placeholder="Enter your passphrase"></textarea>
+
+    <div class="row" style="margin-top: 1rem;">
+        <div class="col">
+            <label for="salt">Salt (optional)</label>
+            <input id="salt" type="text" placeholder="Recommended for better security" />
+        </div>
+        <div class="col">
+            <label for="kdf">Derivation method (KDF)</label>
+            <select id="kdf">
+                <option value="sha256">SHA-256</option>
+                <option value="pbkdf2" selected>PBKDF2 (SHA-256)</option>
+            </select>
+        </div>
+        <div class="col">
+            <label for="algo">Signature algorithm</label>
+            <select id="algo">
+                <option value="ed25519" selected>Ed25519</option>
+                <option value="ecdsa-secp256k1">secp256k1</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="checkbox-row">
+        <input id="caseInsensitive" type="checkbox" checked />
+        <label for="caseInsensitive">Normalize to lowercase</label>
+    </div>
+
+    <div class="checkbox-row" id="pbkdf2SaltRow">
+        <input id="pbkdf2UseDetSalt" type="checkbox" />
+        <label for="pbkdf2UseDetSalt">
+            If salt is empty, use deterministic salt (SHA256 of normalized text)
+        </label>
+    </div>
+
+    <div class="col" style="margin-top: 1rem;">
+        <label for="xnet">X-address format</label>
+        <select id="xnet">
+            <option value="mainnet" selected>Mainnet</option>
+            <option value="testnet">Testnet</option>
+        </select>
+    </div>
+
+    <button id="btnGenerate">Generate wallet</button>
+    <div id="error" class="error" style="display:none"></div>
+
+    <!-- Output -->
+    <div class="result" id="result" style="display:none">
+        <div class="result-item"><span class="label">Normalized text:</span><span id="normalizedText"></span></div>
+        <div class="result-item"><span class="label">KDF:</span><span id="resultKdf"></span></div>
+        <div class="result-item"><span class="label">Seed (hex):</span><span id="seedHex"></span></div>
+        <div class="result-item"><span class="label">Seed (Base64):</span><span id="seedBase64"></span></div>
+        <div class="result-item"><span class="label">Family Seed:</span><span id="walletSeed"></span></div>
+        <div class="result-item"><span class="label">Classic Address:</span><span id="classicAddress"></span></div>
+        <div class="result-item"><span class="label">X-Address:</span><span id="xAddress"></span></div>
+        <div class="result-item"><span class="label">Public Key:</span><span id="pubKey"></span></div>
+        <div class="result-item"><span class="label">Private Key:</span><span id="privKey"></span></div>
+        <div class="small warn">
+            Warning: This data grants full control over the XRPL wallet. Never share it with anyone!
+        </div>
+    </div>
+</div>
+
+<!-- xrpl.js -->
+<script src="https://unpkg.com/xrpl@4.4.3/build/xrpl-latest-min.js"></script>
+<script>
+    const $ = id => document.getElementById(id);
+
+    function normalizeText(input, caseInsensitive) {
+        let normalized = input.trim()
+            .replace(/\r\n/g, "\n")
+            .replace(/\r/g, "\n");
+
+        if (caseInsensitive) normalized = normalized.toLowerCase();
+        return normalized.split(/[\s\n\t]+/u).filter(Boolean).join(" ");
+    }
+
+    function toHex(uint8) { return Array.from(uint8, b => b.toString(16).padStart(2, "0")).join(""); }
+    function toBase64(uint8) { return btoa(String.fromCharCode(...uint8)); }
+
+    async function sha256(bytes) {
+        return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    }
+
+    async function deriveSeedSHA256(normalized, salt) {
+        let text = normalized;
+        if (salt) text += "::" + salt.trim();
+        return (await sha256(new TextEncoder().encode(text))).slice(0, 16);
+    }
+
+    async function deriveSeedPBKDF2(normalized, salt, useDet) {
+        const passwordBytes = new TextEncoder().encode(normalized);
+        let saltBytes;
+
+        if (salt && salt.trim().length > 0) {
+            saltBytes = new TextEncoder().encode(salt.trim());
+        } else if (useDet) {
+            saltBytes = await sha256(passwordBytes);
+        } else {
+            saltBytes = new Uint8Array(0);
+        }
+
+        const keyMaterial = await crypto.subtle.importKey(
+            "raw",
+            passwordBytes,
+            { name: "PBKDF2" },
+            false,
+            ["deriveBits"]
+        );
+
+        const bits = await crypto.subtle.deriveBits(
+            {
+                name: "PBKDF2",
+                salt: saltBytes,
+                iterations: 100000,
+                hash: "SHA-256"
+            },
+            keyMaterial,
+            128
+        );
+
+        return new Uint8Array(bits);
+    }
+
+    $("kdf").addEventListener("change", () => {
+        $("pbkdf2SaltRow").style.display = $("kdf").value === "pbkdf2" ? "flex" : "none";
+    });
+
+    $("btnGenerate").addEventListener("click", async () => {
+        const text = $("text").value.trim();
+        if (!text) return showError("Please enter input text.");
+
+        if (!window.crypto?.subtle) {
+            return showError("This browser does not support WebCrypto (crypto.subtle).");
+        }
+        if (!window.xrpl?.Wallet?.fromEntropy) {
+            return showError("xrpl.js is not loaded or Wallet.fromEntropy is not available.");
+        }
+
+        try {
+            disableButton(true);
+
+            const normalized = normalizeText(text, $("caseInsensitive").checked);
+            const kdf = $("kdf").value;
+            const salt = $("salt").value;
+            const useDetSalt = $("pbkdf2UseDetSalt").checked;
+
+            const seedBytes = kdf === "pbkdf2"
+                ? await deriveSeedPBKDF2(normalized, salt, useDetSalt)
+                : await deriveSeedSHA256(normalized, salt);
+
+            const wallet = xrpl.Wallet.fromEntropy(seedBytes, {
+                algorithm: $("algo").value
+            });
+
+            const data = {
+                normalized,
+                kdf: kdf.toUpperCase() + (kdf === "pbkdf2" && useDetSalt ? " (deterministic salt if empty)" : ""),
+                seedHex: toHex(seedBytes),
+                seedBase64: toBase64(seedBytes),
+                walletSeed: wallet.seed,
+                classicAddress: wallet.classicAddress,
+                xAddress: wallet.getXAddress(undefined, $("xnet").value === "testnet"),
+                pubKey: wallet.publicKey,
+                privKey: wallet.privateKey
+            };
+
+            updateResult(data);
+        } catch (e) {
+            console.error(e);
+            showError(e?.message ?? String(e));
+        } finally {
+            disableButton(false);
+        }
+    });
+
+    function updateResult(data) {
+        $("error").style.display = "none";
+        $("result").style.display = "block";
+
+        $("normalizedText").textContent   = data.normalized;
+        $("resultKdf").textContent       = data.kdf;
+        $("seedHex").textContent         = data.seedHex;
+        $("seedBase64").textContent      = data.seedBase64;
+        $("walletSeed").textContent      = data.walletSeed ?? "";
+        $("classicAddress").textContent  = data.classicAddress ?? "";
+        $("xAddress").textContent        = data.xAddress ?? "";
+        $("pubKey").textContent          = data.pubKey ?? "";
+        $("privKey").textContent         = data.privKey ?? "";
+    }
+
+    function disableButton(disabled) {
+        $("btnGenerate").disabled = disabled;
+        $("btnGenerate").textContent = disabled ? "Processing..." : "Generate wallet";
+    }
+
+    function showError(msg) {
+        $("result").style.display = "none";
+        $("error").textContent = msg;
+        $("error").style.display = "block";
+    }
+</script>
+</body>
+</html>
